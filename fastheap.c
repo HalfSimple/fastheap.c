@@ -4,7 +4,6 @@ a very sharded 2 gb to defragment in : 0.64 sec as compared to the old versions:
 
 the general idea and usage is we start by handing over some room with initheap.
 it is then turned into the heap pointer, and a free block.
-
 room can be allocated with alloch, which internally rounds up your allocation to the closes uintptr_t unit
 freeh assumes you pass a real pointer in a heap, and just shifts some values and stapes it to the free list.
 extendheap adds new room as another free block.
@@ -12,13 +11,12 @@ defragment merges adjacent free blocks into larger ones. avoids falling off the 
 in a far cheaper way now, saving an n iterations per block. 
 
 the heap pointer holds all of the information, you can easily have multiple heaps as long as they do not overlap.
-you can even make a heap inside of another with 0 issues. 
+you can even make a heap inside of another active heap with 0 issues. 
 
-DO NOT MULTITHREAD THIS WITHOUT A LOT OF SAFETY.
-unless you like assembly debugging. 
+singlethreaded.
 
-the primary goal of this project was to make something that could function as a malloc like interface from raw pages, and this can be done with minimal changes
-memory usage was partially prioritized as opposed to raw speed (as opposed to v1, which was 100% for memory usage), leading to something with far less overhead compared to an array allocator.
+the primary goal of this project was to make something that could function as a malloc like interface from raw pages, and this can be done with minimal changes (may add example later)
+memoryusage was partially prioritized as opposed to raw speed (as opposed to v1, which was 100% for memory usage).
 
 there was no AI code used in the making of this project.
 */
@@ -45,13 +43,13 @@ void* alloch (void* heapaddress, uintptr_t bytesize){ // NULL if failed, void* t
 	/* we look at a heap pointer, and traverse it last back. if we find a block that matches the rounded up size
 	we allocate and remove it from the free list, reconnecting the ends of the list */ 
 
-	if(bytesize == 0){return NULL;} // not POSIX compliant! for later versions potential change here.
+	if(bytesize == 0){return NULL;}
 	uintptr_t* heap = (uintptr_t*) heapaddress;
 	uintptr_t* traverse = (uintptr_t*)*heap; // start search at the top free
 	if(traverse == 0){return NULL;} // there are no free blocks in the list. 
-	uintptr_t* from = heap; // pointer we came from on iteration.
+	uintptr_t* from = heap;
 	while(1){
-		if(bytesize <= *traverse){ // this block can hold the allocation.
+		if(bytesize <= *traverse){
 			if((*traverse) < ((bytesize - 1) / sizeof(uintptr_t) + 1) * sizeof(uintptr_t) + 3*(sizeof(uintptr_t))){
 			// check if it is legal to make a second block and allocate, if not overallocate a bit.
 				bytesize = *traverse;
@@ -75,8 +73,7 @@ void* alloch (void* heapaddress, uintptr_t bytesize){ // NULL if failed, void* t
 			*from = *(traverse + 2);
 			// reconnect the list, removing the now allocated block from the list (pop a link, connect the chains)
 			return((void*) (traverse + 2));
-			// return the interal space of the block, now safe to use
-		} else { // follow the pointer to the previous block, if it exists.
+		} else {
 			if(*(traverse + 2) == 0){return NULL;} 
 			from = traverse + 2;
 			traverse = (uintptr_t*)*(traverse + 2);
@@ -114,10 +111,10 @@ int extendheap (void* heapaddress, void* room, uintptr_t bytesize){ // 0 = attac
 	return 0;
 }
 
-void defragment (void* heapaddress){ // :) I found a solution that is not horrid! 50,000%+ improvement is pretty nice in my eyes
+void defragment (void* heapaddress){
 	uintptr_t* heap = (uintptr_t*) heapaddress;
-	if(*heap == 0){return;} // nothing is free
-	uintptr_t* from = (uintptr_t*) *heap; // start at the last free block
+	if(*heap == 0){return;}
+	uintptr_t* from = (uintptr_t*) *heap;
 	// start our loop at the last free block
 	
 	while(1){
@@ -125,7 +122,6 @@ void defragment (void* heapaddress){ // :) I found a solution that is not horrid
 			goto getnext;
 		} // we now know it is safe to jump ahead.
 		uintptr_t candidate = ((uintptr_t) from) + 2*sizeof(uintptr_t) + *from;
-		// location of the next block, as it must exist
 		if(!(*(((uintptr_t*) candidate) + 1) & 1)){
 		// the next block is not allocated
 		 *from = *from + 2*sizeof(uintptr_t) + *((uintptr_t*) candidate);
@@ -140,7 +136,7 @@ void defragment (void* heapaddress){ // :) I found a solution that is not horrid
 				goto getnext; // next block is not free. 
 			}
 		} else {
-			*(from + 1) = *(from + 1) | 2; // we hit the edge, mark that.
+			*(from + 1) = *(from + 1) | 2;
 		}
 		getnext:
 		if(*(from+2) == 0){break;} else {from = (uintptr_t*)*(from + 2);}
@@ -152,7 +148,7 @@ void defragment (void* heapaddress){ // :) I found a solution that is not horrid
 	while(1){
 		if(current == 0){return;}
 		if((*(current + 1) & 8) == 8){
-		// marked block found
+		// marked dead block found
 			*from = *(current + 2);
 			current = (uintptr_t*)*(current + 2);
 			continue;
